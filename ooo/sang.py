@@ -10,12 +10,19 @@ def setup_driver():
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--disable-gpu-sandbox")
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
     try:
         driver = webdriver.Chrome(options=chrome_options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         return driver
     except Exception as e:
         print(f"Error setting up Chrome driver: {e}")
@@ -44,8 +51,30 @@ def extract_all_part_numbers(driver):
     # Lấy tất cả các hàng trong tbody (bỏ qua header)
     rows = table.find_elements(By.CSS_SELECTOR, "tbody tr.PartNumberAsideColumns_dataRow__OUw8N")
     part_numbers = []
+    part_numbers = []
+    links = []
+    
+    # Locate the table with the specified class
+    table = wait.until(EC.presence_of_element_located(
+        (By.CLASS_NAME, "PartNumberColumn_tableBase__DK2Le"))
+    )
+    
+    # Find all rows within the table
+    rows = table.find_elements(By.CLASS_NAME, "PartNumberColumn_dataRow__43D6Y")
+    
+    for row in rows:
+        # Find the element with the specified class to get the part number
+        part_number_element = row.find_element(By.CLASS_NAME, "Link_primary__7Eh11")
+        part_number = part_number_element.get_attribute("title").strip()
+        
+        # Construct the link based on the part number element
+        link = part_number_element.get_attribute("href").strip()
+        
+        # Append the part number and link to their respective lists
+        part_numbers.append(part_number)
+        links.append(link)
     prices = []
-    days_to_ship = []
+    # days_to_ship = []
     for row in rows:
         # Lấy giá trị price và day to ship theo index
         price_cell = row.find_element(By.CLASS_NAME, "PartNumberAsideColumns_dataCellBase__tIm9A")
@@ -54,22 +83,22 @@ def extract_all_part_numbers(driver):
         day_to_ship_cell = row.find_element(By.CLASS_NAME, "PartNumberAsideColumns_daysToShipDataCell__JRaMu")
         day_to_ship = day_to_ship_cell.find_element(By.CLASS_NAME, "PartNumberAsideColumns_data__jikjP").find_element(By.TAG_NAME, "span").text.strip()
         
-        # Giả sử part number nằm ở cột đầu tiên (td đầu tiên)
+    #     # Giả sử part number nằm ở cột đầu tiên (td đầu tiên)
         cells = row.find_elements(By.TAG_NAME, "td")
         if cells:
-            part_number = cells[0].text.strip()
-            if part_number:
-                part_numbers.append(part_number)
+            price = cells[0].text.strip()
+            if price:
                 prices.append(price)
-                days_to_ship.append(day_to_ship)
     print("part_numbers:", part_numbers)
     print("prices:", prices)
-    print("days_to_ship:", days_to_ship)
     print("part_numbers length:", len(part_numbers))
     print("part_numbers:", part_numbers)
     print("part_numbers length:", len(part_numbers))
+    print("links:", links)
+    print("links length:", len(links))
 
-    return part_numbers
+
+    return part_numbers,prices,links
 
 
 # # ====== HÀM LẤY THÔNG SỐ MỖI PART (có retry) ======
@@ -128,7 +157,7 @@ def extract_all_part_numbers(driver):
 #                 print(f"❌ Bỏ qua {part_number} sau {max_retry} lần thử.")
 #                 return {"Part Number": part_number, "Error": str(e)}
 
-def get_data_match_part_number(driver, index, part_number):
+def get_data_match_part_number(driver, index, part_number,price,link):
     wait = WebDriverWait(driver, 60)
     
     try:
@@ -147,8 +176,7 @@ def get_data_match_part_number(driver, index, part_number):
         return {"Part Number": part_number, "Error": "Table not found"}
 
     rows = table.find_elements(By.CSS_SELECTOR, "tr.PartNumberAsideColumns_dataRow__OUw8N")
-    spec_data = {"Index": index, "Part Number": "", "Price": part_number, "Days to Ship": ""}
-    price = ""
+    spec_data = {"Index": index, "Part Number": part_number, "Price": price, "Days to Ship": "", "Link": link}
     days_to_ship = ""
     for row in rows:
         try:
@@ -182,15 +210,13 @@ def main():
     driver.get(url)
 
     print("Đang lấy danh sách Part Numbers...")
-    part_numbers = extract_all_part_numbers(driver)
+    part_numbers,prices,links = extract_all_part_numbers(driver)
     print(f"Tìm thấy {len(part_numbers)} part numbers.")
-
     all_data = []
     for idx, pn in enumerate(part_numbers, start=1):
         print(f"({idx}/{len(part_numbers)}) Đang lấy dữ liệu: {pn}")
         # data = extract_specifications(driver, pn, max_retry=3)
-        data=get_data_match_part_number(driver,idx, pn)
-        data["Part Number"] = pn
+        data=get_data_match_part_number(driver,idx, pn,prices[idx-1],links[idx-1])
         all_data.append(data)
         time.sleep(1)
         
@@ -198,13 +224,13 @@ def main():
     driver.quit()
 
     # # Lưu ra Excel
-    # if all_data:
-    #     df = pd.DataFrame(all_data)
-    #     output_file = "misumi_bearings.xlsx"
-    #     df.to_excel(output_file, index=False)
-    #     print(f"✅ Đã lưu dữ liệu vào {output_file}")
-    # else:
-    #     print("⚠ Không lấy được dữ liệu nào.")
+    if all_data:
+        df = pd.DataFrame(all_data)
+        output_file = "misumi_bearings_A1.xlsx"
+        df.to_excel(output_file, index=False)
+        print(f"✅ Đã lưu dữ liệu vào {output_file}")
+    else:
+        print("⚠ Không lấy được dữ liệu nào.")
 
 
 if __name__ == "__main__":
