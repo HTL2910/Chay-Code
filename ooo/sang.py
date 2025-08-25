@@ -97,6 +97,7 @@ def get_other_data(driver):
     dropdown_btn.click()
     time.sleep(5)
     minimum_order_qty=[]
+    volumn_discount=[]
     inner_dia_d=[]
     outer_dia_d=[]
     width_b=[]
@@ -124,13 +125,15 @@ def get_other_data(driver):
         soup = BeautifulSoup(html, "html.parser")
         values = [div.get_text(strip=True) for div in soup.select("div.PartNumberSpecCells_data__u6ZZX")]
         minimum_order_qty.append(values[0])
-        inner_dia_d.append(values[1])
-        outer_dia_d.append(values[2])
-        width_b.append(values[3])
-        basic_load_rating_cr.append(values[4])
-        basic_load_rating_cor.append(values[5])
-        weight.append(values[6])
+        volumn_discount.append(values[1])
+        inner_dia_d.append(values[2])
+        outer_dia_d.append(values[3])
+        width_b.append(values[4])
+        basic_load_rating_cr.append(values[5])
+        basic_load_rating_cor.append(values[6])
+        weight.append(values[7])
     print("minimum_order_qty:", minimum_order_qty)
+    print("volumn_discount:", volumn_discount)
     print("inner_dia_d:", inner_dia_d)
     print("outer_dia_d:", outer_dia_d)
     print("width_b:", width_b)
@@ -138,7 +141,7 @@ def get_other_data(driver):
     print("basic_load_rating_cor:", basic_load_rating_cor)
     print("weight:", weight)
 
-    return minimum_order_qty, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight
+    return minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight
 # ====== MAIN ======
 def main():
     url = "https://vn.misumi-ec.com/vona2/detail/110310367019/?KWSearch=bearing&searchFlow=results2products&list=PageSearchResult"
@@ -157,7 +160,7 @@ def main():
     print(f"Tìm thấy {len(part_numbers)} part numbers.")
     print(f"Tìm thấy {len(link_numbers)} link numbers.")
     prices, days_to_ship = get_data_prices_days_ship(driver)
-    minimum_order_qty, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_other_data(driver)  
+    minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_other_data(driver)  
     for i in range(len(part_numbers)):
         all_data.append({
             "Part Number": part_numbers[i],
@@ -165,6 +168,7 @@ def main():
             "Days to Ship": days_to_ship[i],
             "Link": link_numbers[i],
             "Minimum Order Qty": minimum_order_qty[i],
+            "Volumn Discount": volumn_discount[i],
             "Inner Dia D": inner_dia_d[i],
             "Outer Dia D": outer_dia_d[i],
             "Width B": width_b[i],
