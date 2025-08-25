@@ -5,6 +5,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from bs4 import BeautifulSoup
 
 def setup_driver():
     chrome_options = Options()
@@ -84,7 +85,60 @@ def get_data_prices_days_ship(driver):
     print("prices:", prices)
     print("days_to_ship:", days_to_ship)
     return prices, days_to_ship
+def get_other_data(driver):
+    wait = WebDriverWait(driver, 60)
+    time.sleep(5)
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    time.sleep(2)
+    driver.execute_script("window.scrollTo(0, 0);")
+    time.sleep(2)
+    dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='detailTabs']/div/div/div/ul/li[2]")))
+    time.sleep(5)
+    dropdown_btn.click()
+    time.sleep(5)
+    minimum_order_qty=[]
+    inner_dia_d=[]
+    outer_dia_d=[]
+    width_b=[]
+    basic_load_rating_cr=[]
+    basic_load_rating_cor=[]
+    weight=[]
+    table_other_data = wait.until(
+        EC.presence_of_element_located((By.CLASS_NAME, "PartNumberSpecColumns_tableBase__VK5Nd"))
+    )
 
+    rows = table_other_data.find_elements(By.CLASS_NAME, "PartNumberSpecColumns_dataRow__M4B4a")
+
+    # for row in rows:
+    #     print("----- outerHTML -----")
+    #     print(row.get_attribute("outerHTML"))   # toàn bộ <tr>...</tr>
+        
+    #     print("----- innerHTML -----")
+    #     print(row.get_attribute("innerHTML"))   # chỉ lấy phần bên trong <tr>...</tr>
+        
+    #     print("----- text -----")
+    #     print(row.text) 
+
+    for row in rows:
+        html = row.get_attribute("innerHTML")
+        soup = BeautifulSoup(html, "html.parser")
+        values = [div.get_text(strip=True) for div in soup.select("div.PartNumberSpecCells_data__u6ZZX")]
+        minimum_order_qty.append(values[0])
+        inner_dia_d.append(values[1])
+        outer_dia_d.append(values[2])
+        width_b.append(values[3])
+        basic_load_rating_cr.append(values[4])
+        basic_load_rating_cor.append(values[5])
+        weight.append(values[6])
+    print("minimum_order_qty:", minimum_order_qty)
+    print("inner_dia_d:", inner_dia_d)
+    print("outer_dia_d:", outer_dia_d)
+    print("width_b:", width_b)
+    print("basic_load_rating_cr:", basic_load_rating_cr)
+    print("basic_load_rating_cor:", basic_load_rating_cor)
+    print("weight:", weight)
+
+    return minimum_order_qty, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight
 # ====== MAIN ======
 def main():
     url = "https://vn.misumi-ec.com/vona2/detail/110310367019/?KWSearch=bearing&searchFlow=results2products&list=PageSearchResult"
@@ -94,7 +148,7 @@ def main():
     if not driver:
         print("Failed to setup Chrome driver")
         return
-    
+    all_data=[]
     driver.maximize_window()
     driver.get(url)
     print("Đang lấy danh sách Part Numbers...")
@@ -103,26 +157,33 @@ def main():
     print(f"Tìm thấy {len(part_numbers)} part numbers.")
     print(f"Tìm thấy {len(link_numbers)} link numbers.")
     prices, days_to_ship = get_data_prices_days_ship(driver)
-    # all_data = []
-    # for idx, pn in enumerate(part_numbers, start=1):
-    #     print(f"({idx}/{len(part_numbers)}) Đang lấy dữ liệu: {pn}")
-    #     # data = extract_specifications(driver, pn, max_retry=3)
-    #     data=get_data_match_part_number(driver,idx, pn)
-    #     data["Part Number"] = pn
-    #     all_data.append(data)
-    #     time.sleep(1)
-        
+    minimum_order_qty, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_other_data(driver)  
+    for i in range(len(part_numbers)):
+        all_data.append({
+            "Part Number": part_numbers[i],
+            "Price": prices[i],
+            "Days to Ship": days_to_ship[i],
+            "Link": link_numbers[i],
+            "Minimum Order Qty": minimum_order_qty[i],
+            "Inner Dia D": inner_dia_d[i],
+            "Outer Dia D": outer_dia_d[i],
+            "Width B": width_b[i],
+            "Basic Load Rating CR": basic_load_rating_cr[i],
+            "Basic Load Rating COR": basic_load_rating_cor[i],
+            "Weight": weight[i]
+        })
+    print("all_data:", all_data)
     # print("all_data:", all_data)
     driver.quit()
 
     # # Lưu ra Excel
-    # if all_data:
-    #     df = pd.DataFrame(all_data)
-    #     output_file = "misumi_bearings.xlsx"
-    #     df.to_excel(output_file, index=False)
-    #     print(f"✅ Đã lưu dữ liệu vào {output_file}")
-    # else:
-    #     print("⚠ Không lấy được dữ liệu nào.")
+    if all_data:
+        df = pd.DataFrame(all_data)
+        output_file = "misumi_bearings_4_col.xlsx"
+        df.to_excel(output_file, index=False)
+        print(f"✅ Đã lưu dữ liệu vào {output_file}")
+    else:
+        print("⚠ Không lấy được dữ liệu nào.")
 
 
 if __name__ == "__main__":
