@@ -32,44 +32,26 @@ def extract_all_part_numbers(driver):
     time.sleep(2)
 
     # Chờ đúng nút có id 'codeList'
-    dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='codeList']")))
+    dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='detailTabs']/div/div/div/ul/li[2]")))
     time.sleep(5)
     dropdown_btn.click()
     time.sleep(5)
 
-    #lấy danh sách price and days to ship
-    table = wait.until(EC.presence_of_element_located(
-        (By.CLASS_NAME, "PartNumberAsideColumns_table__6fKVE"))
-    )
-    # Lấy tất cả các hàng trong tbody (bỏ qua header)
-    rows = table.find_elements(By.CSS_SELECTOR, "tbody tr.PartNumberAsideColumns_dataRow__OUw8N")
-    part_numbers = []
-    prices = []
-    days_to_ship = []
-    for row in rows:
-        # Lấy giá trị price và day to ship theo index
-        price_cell = row.find_element(By.CLASS_NAME, "PartNumberAsideColumns_dataCellBase__tIm9A")
-        price = price_cell.find_element(By.CLASS_NAME, "PartNumberAsideColumns_data__jikjP").find_element(By.TAG_NAME, "span").text.strip()
-        
-        day_to_ship_cell = row.find_element(By.CLASS_NAME, "PartNumberAsideColumns_daysToShipDataCell__JRaMu")
-        day_to_ship = day_to_ship_cell.find_element(By.CLASS_NAME, "PartNumberAsideColumns_data__jikjP").find_element(By.TAG_NAME, "span").text.strip()
-        
-        # Giả sử part number nằm ở cột đầu tiên (td đầu tiên)
-        cells = row.find_elements(By.TAG_NAME, "td")
-        if cells:
-            part_number = cells[0].text.strip()
-            if part_number:
-                part_numbers.append(part_number)
-                prices.append(price)
-                days_to_ship.append(day_to_ship)
+    part_numbers=[]
+    link_numbers=[]
+    table_part_number=wait.until(EC.presence_of_element_located((By.CLASS_NAME, "PartNumberColumn_tableBase__DK2Le")))
+    
+    part_elements = table_part_number.find_elements(By.CLASS_NAME, "PartNumberColumn_dataRow__43D6Y")
+    
+    for element in part_elements:
+        a_elements = element.find_elements(By.TAG_NAME, "a")
+        title = a_elements[0].get_attribute("title")
+        link = a_elements[0].get_attribute("href")
+        part_numbers.append(title)
+        link_numbers.append(link)
     print("part_numbers:", part_numbers)
-    print("prices:", prices)
-    print("days_to_ship:", days_to_ship)
-    print("part_numbers length:", len(part_numbers))
-    print("part_numbers:", part_numbers)
-    print("part_numbers length:", len(part_numbers))
-
-    return part_numbers
+    print("link_numbers:", link_numbers)
+    return part_numbers, link_numbers
 
 
 # # ====== HÀM LẤY THÔNG SỐ MỖI PART (có retry) ======
@@ -128,46 +110,58 @@ def extract_all_part_numbers(driver):
 #                 print(f"❌ Bỏ qua {part_number} sau {max_retry} lần thử.")
 #                 return {"Part Number": part_number, "Error": str(e)}
 
-def get_data_match_part_number(driver, index, part_number):
-    wait = WebDriverWait(driver, 60)
+# def get_data_match_part_number(driver, index, part_number):
+#     wait = WebDriverWait(driver, 60)
     
-    try:
-        dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='codeList']")))
-        dropdown_btn.click()
-    except Exception as e:
-        print(f"Error clicking dropdown for {part_number}: {e}")
-        return {"Part Number": part_number, "Error": "Dropdown click failed"}
+#     try:
+#         dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='codeList']")))
+#         dropdown_btn.click()
+#     except Exception as e:
+#         print(f"Error clicking dropdown for {part_number}: {e}")
+#         return {"Part Number": part_number, "Error": "Dropdown click failed"}
 
-    try:
-        table = wait.until(EC.presence_of_element_located(
-            (By.XPATH, "//*[@id='partNumberListTable']/div/div[2]/table"))
-        )
-    except Exception as e:
-        print(f"Error locating table for {part_number}: {e}")
-        return {"Part Number": part_number, "Error": "Table not found"}
-
-    rows = table.find_elements(By.CSS_SELECTOR, "tr.PartNumberAsideColumns_dataRow__OUw8N")
-    spec_data = {"Index": index, "Part Number": "", "Price": part_number, "Days to Ship": ""}
-    price = ""
-    days_to_ship = ""
-    for row in rows:
-        try:
-            # part_number_elem = row.find_element(By.CSS_SELECTOR, ".PartNumberAsideColumns_partNumberCell__xyz")
+#     try:
+#         table_Price_Days_Ship = wait.until(EC.presence_of_element_located(
+#             (By.XPATH, "//*[@id='partNumberListTable']/div/div[2]/table"))
+#         )
+#         table_Part_Number=wait.until(EC.presence_of_element_located(
+#             (By.XPATH, "//*[@id='partNumberListTable']/div/div[1]/table"))
+#         )
+#     except Exception as e:
+#         print(f"Error locating table for {part_number}: {e}")
+#         return {"Part Number": part_number, "Error": "Table not found"}
+#     part_list=[]
+#     link_list=[]
+#     part_elements = table_Part_Number.find_elements(By.CLASS_NAME, "PartNumberColumn_data__gl8oY")
+#     link = ""
+#     for element in part_elements:
+#         title = element.get_attribute("title")
+#         link = element.get_attribute("href")
+#         part_list.append(title)
+#         link_list.append(link)
+#         if title == part_number:
+#             break
+    
+#     rows = table_Price_Days_Ship.find_elements(By.CSS_SELECTOR, "tr.PartNumberAsideColumns_dataRow__OUw8N")
+#     spec_data = {"Index": index, "Part Number": part_list, "Price":part_number, "Days to Ship": "", "Link": link_list}
+#     for row in rows:
+#         try:
+#             # part_number_elem = row.find_element(By.CSS_SELECTOR, ".PartNumberAsideColumns_partNumberCell__xyz")
             
-            price_elem = row.find_element(By.CSS_SELECTOR, ".PartNumberAsideColumns_dataCellBase__tIm9A")
-            days_to_ship_elem = row.find_element(By.CSS_SELECTOR, ".PartNumberAsideColumns_daysToShipDataCell__JRaMu")
+#             price_elem = row.find_element(By.CSS_SELECTOR, ".PartNumberAsideColumns_dataCellBase__tIm9A")
+#             days_to_ship_elem = row.find_element(By.CSS_SELECTOR, ".PartNumberAsideColumns_daysToShipDataCell__JRaMu")
                 
-            # price = price_elem.text.strip()
-            days_to_ship = days_to_ship_elem.text.strip()
-            # spec_data["Price"] = price
-            spec_data["Days to Ship"] = days_to_ship
+#             # price = price_elem.text.strip()
+#             days_to_ship = days_to_ship_elem.text.strip()
+#             # spec_data["Price"] = price
+#             spec_data["Days to Ship"] = days_to_ship
             
-        except Exception as e:
-            print(f"Error extracting data for {part_number}: {e}")
-            continue
+#         except Exception as e:
+#             print(f"Error extracting data for {part_number}: {e}")
+#             continue
 
-    print("spec_data:", spec_data)
-    return spec_data
+#     print("spec_data:", spec_data)
+#     return spec_data
 # ====== MAIN ======
 def main():
     url = "https://vn.misumi-ec.com/vona2/detail/110310367019/?KWSearch=bearing&searchFlow=results2products&list=PageSearchResult"
@@ -180,21 +174,22 @@ def main():
     
     driver.maximize_window()
     driver.get(url)
-
     print("Đang lấy danh sách Part Numbers...")
-    part_numbers = extract_all_part_numbers(driver)
+    time.sleep(5)
+    part_numbers, link_numbers = extract_all_part_numbers(driver)
     print(f"Tìm thấy {len(part_numbers)} part numbers.")
+    print(f"Tìm thấy {len(link_numbers)} link numbers.")
 
-    all_data = []
-    for idx, pn in enumerate(part_numbers, start=1):
-        print(f"({idx}/{len(part_numbers)}) Đang lấy dữ liệu: {pn}")
-        # data = extract_specifications(driver, pn, max_retry=3)
-        data=get_data_match_part_number(driver,idx, pn)
-        data["Part Number"] = pn
-        all_data.append(data)
-        time.sleep(1)
+    # all_data = []
+    # for idx, pn in enumerate(part_numbers, start=1):
+    #     print(f"({idx}/{len(part_numbers)}) Đang lấy dữ liệu: {pn}")
+    #     # data = extract_specifications(driver, pn, max_retry=3)
+    #     data=get_data_match_part_number(driver,idx, pn)
+    #     data["Part Number"] = pn
+    #     all_data.append(data)
+    #     time.sleep(1)
         
-    print("all_data:", all_data)
+    # print("all_data:", all_data)
     driver.quit()
 
     # # Lưu ra Excel
