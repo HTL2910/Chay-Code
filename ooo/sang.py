@@ -142,48 +142,62 @@ def get_other_data(driver):
     print("weight:", weight)
 
     return minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight
-# ====== MAIN ======
-def main():
-    url = "https://vn.misumi-ec.com/vona2/detail/110310367019/?KWSearch=bearing&searchFlow=results2products&list=PageSearchResult"
-
-    # Khởi tạo Chrome
-    driver = setup_driver()
-    if not driver:
-        print("Failed to setup Chrome driver")
-        return
-    all_data=[]
-    driver.maximize_window()
+def get_url_From_file(file_path,start_index,end_index):
+    df = pd.read_csv(file_path)
+    if 'Product URL' in df.columns:
+        urls = df['Product URL'].tolist()
+        return urls[start_index:end_index]
+    else:
+        print("⚠ 'Product URL' column not found in the CSV file.")
+        return []
+def get_data_from_url(driver, url):
     driver.get(url)
-    print("Đang lấy danh sách Part Numbers...")
     time.sleep(5)
     part_numbers, link_numbers = extract_all_part_numbers(driver)
-    print(f"Tìm thấy {len(part_numbers)} part numbers.")
-    print(f"Tìm thấy {len(link_numbers)} link numbers.")
     prices, days_to_ship = get_data_prices_days_ship(driver)
-    minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_other_data(driver)  
-    for i in range(len(part_numbers)):
-        all_data.append({
-            "Part Number": part_numbers[i],
-            "Price": prices[i],
-            "Days to Ship": days_to_ship[i],
-            "Link": link_numbers[i],
-            "Minimum Order Qty": minimum_order_qty[i],
-            "Volumn Discount": volumn_discount[i],
-            "Inner Dia D": inner_dia_d[i],
-            "Outer Dia D": outer_dia_d[i],
-            "Width B": width_b[i],
-            "Basic Load Rating CR": basic_load_rating_cr[i],
-            "Basic Load Rating COR": basic_load_rating_cor[i],
-            "Weight": weight[i]
-        })
-    print("all_data:", all_data)
-    # print("all_data:", all_data)
-    driver.quit()
+    minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_other_data(driver)
+    return part_numbers, link_numbers, prices, days_to_ship, minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight
 
-    # # Lưu ra Excel
+# ====== MAIN ======
+def main():
+    #2 dòng cần chú ý
+    urls = get_url_From_file("same_day_products_from_html.csv",0,3)
+    name_file_to_save="input_Name_here"
+    #2 dòng cần chú ý
+    all_data = []
+    
+    for url in urls:
+        print("url:", url)
+        driver = setup_driver()
+        if not driver:
+            print("Failed to setup Chrome driver")
+            return
+        driver.maximize_window()
+
+        part_numbers, link_numbers, prices, days_to_ship, minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_data_from_url(driver, url)
+
+        for i in range(len(part_numbers)):
+            all_data.append({
+                "Part Number": part_numbers[i],
+                "Price": prices[i],
+                "Days to Ship": days_to_ship[i],
+                "Link": link_numbers[i],
+                "Minimum Order Qty": minimum_order_qty[i],
+                "Volumn Discount": volumn_discount[i],
+                "Inner Dia D": inner_dia_d[i],
+                "Outer Dia D": outer_dia_d[i],
+                "Width B": width_b[i],
+                "Basic Load Rating CR": basic_load_rating_cr[i],
+                "Basic Load Rating COR": basic_load_rating_cor[i],
+                "Weight": weight[i]
+            })
+        driver.quit()
+
+    print("all_data:", all_data)
+
     if all_data:
         df = pd.DataFrame(all_data)
-        output_file = "misumi_bearings_4_col.xlsx"
+        output_file = name_file_to_save+".xlsx"
         df.to_excel(output_file, index=False)
         print(f"✅ Đã lưu dữ liệu vào {output_file}")
     else:
