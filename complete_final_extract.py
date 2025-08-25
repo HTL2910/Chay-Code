@@ -40,7 +40,7 @@ def extract_complete_data(driver, url):
         
         # Get all part numbers from the page first
         page_text = driver.find_element(By.TAG_NAME, "body").text
-        all_part_numbers = re.findall(r'[A-Z0-9\-]+ZZ', page_text)
+        all_part_numbers = re.findall(r'[A-Z0-9\-]+ZZ', page_text)#Sửa lại nha: Áp dụng part number đuôi ZZ
         unique_part_numbers = list(set(all_part_numbers))
         
         print(f"Found {len(unique_part_numbers)} unique part numbers")

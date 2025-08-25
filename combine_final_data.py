@@ -4,46 +4,17 @@ import pandas as pd
 def combine_data():
     """Combine technical data with price/shipping data"""
     
-    # Read the technical data from simple_extract
-    technical_csv = os.path.join(os.path.dirname(__file__), "ooo", "simple_final_data.csv")
-    price_csv = os.path.join(os.path.dirname(__file__), "ooo", "ultimate_final_data.csv")
+    # Read the complete data from complete_final_extract
+    complete_csv = os.path.join(os.path.dirname(__file__), "ooo", "complete_final_data.csv")
     
     try:
-        # Read technical data
-        df_technical = pd.read_csv(technical_csv)
-        print(f"Loaded technical data: {len(df_technical)} records")
-        print(f"Technical columns: {df_technical.columns.tolist()}")
+        # Read complete data
+        df_complete = pd.read_csv(complete_csv)
+        print(f"Loaded complete data: {len(df_complete)} records")
+        print(f"Complete data columns: {df_complete.columns.tolist()}")
         
-        # Read price data
-        df_price = pd.read_csv(price_csv)
-        print(f"Loaded price data: {len(df_price)} records")
-        print(f"Price columns: {df_price.columns.tolist()}")
-        
-        # Check if price columns exist
-        price_columns = ['price', 'days_to_ship', 'minimum_order_qty']
-        available_price_columns = [col for col in price_columns if col in df_price.columns]
-        print(f"Available price columns: {available_price_columns}")
-        
-        if available_price_columns:
-            # Merge the data on part_number with suffixes
-            merge_columns = ['part_number'] + available_price_columns
-            df_combined = pd.merge(df_technical, df_price[merge_columns], 
-                                  on='part_number', how='left', suffixes=('', '_price'))
-            
-            # Update price columns with price data
-            for col in available_price_columns:
-                price_col = f"{col}_price" if f"{col}_price" in df_combined.columns else col
-                if price_col in df_combined.columns:
-                    # Fill empty values in technical data with price data
-                    mask = (df_combined[col] == '') | (df_combined[col].isna())
-                    df_combined.loc[mask, col] = df_combined.loc[mask, price_col].fillna('')
-                    
-                    # Remove the duplicate column
-                    if price_col != col:
-                        df_combined = df_combined.drop(columns=[price_col])
-        else:
-            print("No price columns found, using technical data only")
-            df_combined = df_technical.copy()
+        # Use the complete data directly
+        df_combined = df_complete.copy()
         
         print(f"Combined data: {len(df_combined)} records")
         
