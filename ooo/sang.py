@@ -92,71 +92,209 @@ def get_other_data(driver):
     time.sleep(2)
     driver.execute_script("window.scrollTo(0, 0);")
     time.sleep(2)
-    dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='detailTabs']/div/div/div/ul/li[2]")))
-    time.sleep(5)
-    dropdown_btn.click()
-    time.sleep(5)
-    minimum_order_qty=[]
-    volumn_discount=[]
-    inner_dia_d=[]
-    outer_dia_d=[]
-    width_b=[]
-    basic_load_rating_cr=[]
-    basic_load_rating_cor=[]
-    weight=[]
-    table_other_data = wait.until(
-        EC.presence_of_element_located((By.CLASS_NAME, "PartNumberSpecColumns_tableBase__VK5Nd"))
-    )
+    
+    print("Trying to click dropdown button...")
+    try:
+        dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='detailTabs']/div/div/div/ul/li[2]")))
+        time.sleep(5)
+        dropdown_btn.click()
+        time.sleep(5)
+        print("Successfully clicked dropdown button")
+    except Exception as e:
+        print(f"Could not click dropdown button: {e}")
+        # Thử tìm nút khác
+        try:
+            print("Trying alternative dropdown selector...")
+            dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//li[contains(text(), 'Part Number')]")))
+            dropdown_btn.click()
+            time.sleep(5)
+            print("Successfully clicked alternative dropdown button")
+        except Exception as e2:
+            print(f"Alternative dropdown also failed: {e2}")
+            return {}
+    
+    ####################################Get name columns
+    print("Trying to extract table headers...")
+    try:
+        table_header = wait.until(EC.presence_of_element_located(
+            (By.CLASS_NAME, "PartNumberSpecHeader_tableBase__Y5X_f")
+        ))
+        cols_header = table_header.find_elements(By.CLASS_NAME, "PartNumberSpecHeader_headerCell__r3GLv")
+        print(f"Found {len(cols_header)} header columns")
 
-    rows = table_other_data.find_elements(By.CLASS_NAME, "PartNumberSpecColumns_dataRow__M4B4a")
+        table_heade_data = {}
 
-    # for row in rows:
-    #     print("----- outerHTML -----")
-    #     print(row.get_attribute("outerHTML"))   # toàn bộ <tr>...</tr>
-        
-    #     print("----- innerHTML -----")
-    #     print(row.get_attribute("innerHTML"))   # chỉ lấy phần bên trong <tr>...</tr>
-        
-    #     print("----- text -----")
-    #     print(row.text) 
+        for i, col in enumerate(cols_header):
+            html = col.get_attribute("innerHTML")
+            soup = BeautifulSoup(html, "html.parser")
+            # lấy toàn bộ text trong cell, kể cả <div>, <p>, text thô
+            header_text = soup.get_text(" ", strip=True)
+            if header_text:  # Only add non-empty headers
+                table_heade_data[header_text] = []
+                print(f"Header {i+1}: '{header_text}'")
+    except Exception as e:
+        print(f"Could not extract table headers: {e}")
+        # Thử tìm bảng khác
+        try:
+            print("Trying alternative table header selector...")
+            table_header = wait.until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "[class*='PartNumberSpecHeader']")
+            ))
+            cols_header = table_header.find_elements(By.CSS_SELECTOR, "[class*='headerCell']")
+            print(f"Found {len(cols_header)} header columns with alternative selector")
+            
+            table_heade_data = {}
+            for i, col in enumerate(cols_header):
+                header_text = col.text.strip()
+                if header_text:
+                    table_heade_data[header_text] = []
+                    print(f"Header {i+1}: '{header_text}'")
+        except Exception as e2:
+            print(f"Alternative header extraction also failed: {e2}")
+            return {}
 
-    for row in rows:
-        html = row.get_attribute("innerHTML")
-        soup = BeautifulSoup(html, "html.parser")
-        values = [div.get_text(strip=True) for div in soup.select("div.PartNumberSpecCells_data__u6ZZX")]
-        minimum_order_qty.append(values[0])
-        volumn_discount.append(values[1])
-        inner_dia_d.append(values[2])
-        outer_dia_d.append(values[3])
-        width_b.append(values[4])
-        basic_load_rating_cr.append(values[5])
-        basic_load_rating_cor.append(values[6])
-        weight.append(values[7])
-    print("minimum_order_qty:", minimum_order_qty)
-    print("volumn_discount:", volumn_discount)
-    print("inner_dia_d:", inner_dia_d)
-    print("outer_dia_d:", outer_dia_d)
-    print("width_b:", width_b)
-    print("basic_load_rating_cr:", basic_load_rating_cr)
-    print("basic_load_rating_cor:", basic_load_rating_cor)
-    print("weight:", weight)
+    ####################################Get data rows
+    print("Trying to extract table data...")
+    try:
+        table_other_data = wait.until(
+            EC.presence_of_element_located((By.CLASS_NAME, "PartNumberSpecColumns_tableBase__VK5Nd"))
+        )
 
-    return minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight
+        rows = table_other_data.find_elements(By.CLASS_NAME, "PartNumberSpecColumns_dataRow__M4B4a")
+        print(f"Found {len(rows)} data rows")
+
+        for row_idx, row in enumerate(rows):
+            html = row.get_attribute("innerHTML")
+            soup = BeautifulSoup(html, "html.parser")
+            values = [div.get_text(strip=True) for div in soup.select("div.PartNumberSpecCells_data__u6ZZX")]
+            print(f"Row {row_idx+1}: {len(values)} values")
+            
+            # Fix: Convert keys to list before indexing
+            header_keys = list(table_heade_data.keys())
+            for i in range(len(header_keys)):
+                if i < len(values):  # Add bounds checking
+                    table_heade_data[header_keys[i]].append(values[i])
+                else:
+                    table_heade_data[header_keys[i]].append('')  # Fill empty values
+    except Exception as e:
+        print(f"Could not extract table data: {e}")
+        # Thử tìm bảng dữ liệu khác
+        try:
+            print("Trying alternative table data selector...")
+            table_other_data = wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='PartNumberSpecColumns']"))
+            )
+            rows = table_other_data.find_elements(By.CSS_SELECTOR, "[class*='dataRow']")
+            print(f"Found {len(rows)} data rows with alternative selector")
+            
+            for row_idx, row in enumerate(rows):
+                cells = row.find_elements(By.CSS_SELECTOR, "[class*='data']")
+                values = [cell.text.strip() for cell in cells]
+                print(f"Row {row_idx+1}: {len(values)} values")
+                
+                header_keys = list(table_heade_data.keys())
+                for i in range(len(header_keys)):
+                    if i < len(values):
+                        table_heade_data[header_keys[i]].append(values[i])
+                    else:
+                        table_heade_data[header_keys[i]].append('')
+        except Exception as e2:
+            print(f"Alternative data extraction also failed: {e2}")
+            return {}
+
+    print(f"Final table_heade_data: {len(table_heade_data)} columns")
+    for key, values in table_heade_data.items():
+        print(f"  {key}: {len(values)} values")
+    return table_heade_data
 def get_url_From_file(file_path,start_index,end_index):
-    df = pd.read_csv(file_path)
-    if 'Product URL' in df.columns:
-        urls = df['Product URL'].tolist()
-        return urls[start_index:end_index]
-    else:
-        print("⚠ 'Product URL' column not found in the CSV file.")
+    try:
+        df = pd.read_csv(file_path)
+        if 'Product URL' in df.columns:
+            urls = df['Product URL'].tolist()
+            # Add bounds checking
+            if start_index < 0:
+                start_index = 0
+            if end_index > len(urls):
+                end_index = len(urls)
+            if start_index >= end_index:
+                print("⚠ Invalid index range: start_index >= end_index")
+                return []
+            return urls[start_index:end_index]
+        else:
+            print("⚠ 'Product URL' column not found in the CSV file.")
+            print(f"Available columns: {list(df.columns)}")
+            return []
+    except FileNotFoundError:
+        print(f"⚠ File not found: {file_path}")
+        return []
+    except Exception as e:
+        print(f"⚠ Error reading file {file_path}: {e}")
         return []
 def get_data_from_url(driver, url):
-    driver.get(url)
-    time.sleep(5)
-    part_numbers, link_numbers = extract_all_part_numbers(driver)
-    prices, days_to_ship = get_data_prices_days_ship(driver)
-    minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_other_data(driver)
-    return part_numbers, link_numbers, prices, days_to_ship, minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight
+    try:
+        driver.get(url)
+        time.sleep(5)
+        
+        # Check if page loaded successfully
+        if "misumi-ec.com" not in driver.current_url:
+            print(f"Page redirect detected. Current URL: {driver.current_url}")
+            
+        # part_numbers, link_numbers = extract_all_part_numbers(driver)
+        # prices, days_to_ship = get_data_prices_days_ship(driver)
+        part_numbers=[]
+        link_numbers=[]
+        prices=[]
+        days_to_ship=[]
+        
+        table_heade_data = get_other_data(driver)
+        
+        # Add debugging information
+        if table_heade_data:
+            print(f"Successfully extracted data with {len(table_heade_data)} columns")
+            for key, values in table_heade_data.items():
+                print(f"  {key}: {len(values)} values")
+        else:
+            print("No data extracted from this URL")
+            
+        return table_heade_data
+        
+    except Exception as e:
+        print(f"Error in get_data_from_url: {e}")
+        return {}
+
+def validate_data_consistency(all_combined_data):
+    """Kiểm tra tính nhất quán của dữ liệu"""
+    if not all_combined_data:
+        return False
+    
+    # Kiểm tra tất cả các cột có cùng độ dài
+    lengths = [len(values) for values in all_combined_data.values()]
+    if len(set(lengths)) != 1:
+        print(f"⚠ Lỗi: Các cột có độ dài khác nhau: {lengths}")
+        return False
+    
+    print(f"✅ Tất cả {len(all_combined_data)} cột đều có {lengths[0]} rows")
+    return True
+
+def print_data_processing_info(url, url_data, all_combined_data, total_rows_processed, url_row_count):
+    """In thông tin chi tiết về quá trình xử lý dữ liệu"""
+    print(f"\n=== Thông tin xử lý URL: {url} ===")
+    print(f"Số rows từ URL này: {url_row_count}")
+    print(f"Tổng rows đã xử lý trước đó: {total_rows_processed}")
+    print(f"Số cột từ URL này: {len(url_data)}")
+    print(f"Số cột trong dữ liệu tổng hợp: {len(all_combined_data)}")
+    
+    # Kiểm tra cột mới
+    new_columns = [key for key in url_data.keys() if key not in all_combined_data]
+    if new_columns:
+        print(f"Cột mới được thêm: {new_columns}")
+    
+    # Kiểm tra cột thiếu
+    missing_columns = [key for key in all_combined_data.keys() if key not in url_data and key != 'Source_URL']
+    if missing_columns:
+        print(f"Cột thiếu trong URL này: {missing_columns}")
+    
+    print("=" * 50)
 
 # ====== MAIN ======
 def main():
@@ -164,42 +302,109 @@ def main():
     urls = get_url_From_file("same_day_products_from_html.csv",0,3)
     name_file_to_save="input_Name_here"
     #2 dòng cần chú ý
-    all_data = []
+    
+    # Initialize data structure to accumulate all data
+    all_combined_data = {}
+    total_rows_processed = 0
     
     for url in urls:
-        print("url:", url)
+        print("Processing URL:", url)
         driver = setup_driver()
         if not driver:
             print("Failed to setup Chrome driver")
-            return
-        driver.maximize_window()
+            continue
+            
+        try:
+            driver.maximize_window()
+            url_data = get_data_from_url(driver, url)
+            
+            # Check if we got any data from this URL
+            if not url_data or all(len(values) == 0 for values in url_data.values()):
+                print(f"No data extracted from URL: {url}")
+                continue
+                
+            # Get the number of rows from this URL
+            url_row_count = max(len(values) for values in url_data.values()) if url_data else 0
+            
+            if url_row_count == 0:
+                print(f"No rows found in data from URL: {url}")
+                continue
+                
+            print(f"Extracted {url_row_count} rows from URL")
+            
+            # In thông tin chi tiết về quá trình xử lý
+            print_data_processing_info(url, url_data, all_combined_data, total_rows_processed, url_row_count)
+            
+            # Add URL identifier to track data source
+            if 'Source_URL' not in all_combined_data:
+                all_combined_data['Source_URL'] = []
+            all_combined_data['Source_URL'].extend([url] * url_row_count)
+            
+            # Xử lý các cột mới từ URL hiện tại
+            new_columns = []
+            for key in url_data.keys():
+                if key not in all_combined_data:
+                    new_columns.append(key)
+                    print(f"Adding new column: {key}")
+                    all_combined_data[key] = []
+                    # Điền giá trị rỗng cho tất cả dữ liệu cũ (từ các URL trước đó)
+                    all_combined_data[key].extend([''] * total_rows_processed)
+            
+            # Xử lý các cột hiện có trong all_combined_data nhưng không có trong url_data
+            missing_columns = []
+            for key in all_combined_data.keys():
+                if key not in url_data and key != 'Source_URL':
+                    missing_columns.append(key)
+                    print(f"Column '{key}' missing in current URL, will fill with empty values")
+            
+            # Đảm bảo tất cả các cột hiện có có đủ số lượng phần tử
+            for key in all_combined_data:
+                while len(all_combined_data[key]) < total_rows_processed:
+                    all_combined_data[key].append('')
+            
+            # Thêm dữ liệu từ URL hiện tại
+            for key, values in url_data.items():
+                all_combined_data[key].extend(values)
+            
+            # Điền giá trị rỗng cho các cột thiếu trong URL hiện tại
+            for key in missing_columns:
+                all_combined_data[key].extend([''] * url_row_count)
+            
+            # Update total rows processed
+            total_rows_processed += url_row_count
+            
+            # Đảm bảo tất cả các cột có cùng độ dài
+            max_length = max(len(v) for v in all_combined_data.values())
+            for key in all_combined_data:
+                while len(all_combined_data[key]) < max_length:
+                    all_combined_data[key].append('')
+                
+        except Exception as e:
+            print(f"Error processing URL {url}: {e}")
+        finally:
+            driver.quit()
 
-        part_numbers, link_numbers, prices, days_to_ship, minimum_order_qty, volumn_discount, inner_dia_d, outer_dia_d, width_b, basic_load_rating_cr, basic_load_rating_cor, weight = get_data_from_url(driver, url)
+    print(f"Total rows processed: {total_rows_processed}")
+    print("Combined data keys:", list(all_combined_data.keys()))
 
-        for i in range(len(part_numbers)):
-            all_data.append({
-                "Part Number": part_numbers[i],
-                "Price": prices[i],
-                "Days to Ship": days_to_ship[i],
-                "Link": link_numbers[i],
-                "Minimum Order Qty": minimum_order_qty[i],
-                "Volumn Discount": volumn_discount[i],
-                "Inner Dia D": inner_dia_d[i],
-                "Outer Dia D": outer_dia_d[i],
-                "Width B": width_b[i],
-                "Basic Load Rating CR": basic_load_rating_cr[i],
-                "Basic Load Rating COR": basic_load_rating_cor[i],
-                "Weight": weight[i]
-            })
-        driver.quit()
+    # Validate data consistency before saving
+    if not validate_data_consistency(all_combined_data):
+        print("⚠ Dữ liệu không nhất quán, không thể lưu file")
+        return
 
-    print("all_data:", all_data)
-
-    if all_data:
-        df = pd.DataFrame(all_data)
+    # Save the accumulated data
+    if all_combined_data and total_rows_processed > 0:
+        df = pd.DataFrame(all_combined_data)
         output_file = name_file_to_save+".xlsx"
         df.to_excel(output_file, index=False)
         print(f"✅ Đã lưu dữ liệu vào {output_file}")
+        print(f"DataFrame shape: {df.shape}")
+        
+        # In thống kê về dữ liệu
+        print("\nThống kê dữ liệu:")
+        for col in df.columns:
+            non_empty_count = (df[col] != '').sum()
+            print(f"  {col}: {non_empty_count}/{len(df)} rows có dữ liệu")
     else:
         print("⚠ Không lấy được dữ liệu nào.")
 
