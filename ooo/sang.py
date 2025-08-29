@@ -5,36 +5,20 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
+from bs4 import BeautifulSoup
 
 def setup_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    # Tạm thời disable headless để debug
+    # chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-gpu-sandbox")
-    chrome_options.add_argument("--disable-web-security")
-    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
-    chrome_options.add_argument("--disable-software-rasterizer")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-plugins")
-    chrome_options.add_argument("--disable-images")
-    chrome_options.add_argument("--disable-javascript")
     chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
-    chrome_options.add_experimental_option("prefs", {
-        "profile.default_content_setting_values": {
-            "images": 2,
-            "plugins": 2,
-            "popups": 2,
-            "geolocation": 2,
-            "notifications": 2,
-            "media_stream": 2,
-        }
-    })
     try:
         driver = webdriver.Chrome(options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
@@ -46,740 +30,609 @@ def setup_driver():
 # ====== HÀM LẤY DANH SÁCH PART NUMBER ======
 def extract_all_part_numbers(driver):
     wait = WebDriverWait(driver, 60)
-    
-    # Wait for page to load completely
-    print("Waiting for page to load...")
-    time.sleep(10)
-    
+    time.sleep(5)
     # Scroll to trigger lazy loading
-    print("Scrolling to trigger lazy loading...")
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    time.sleep(2)
+    driver.execute_script("window.scrollTo(0, 0);")
+    time.sleep(2)
+
+    # Click vào tab Part Number (nếu chưa được click)
+    try:
+        dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='detailTabs']/div/div/div/ul/li[2]")))
+        time.sleep(3)
+        dropdown_btn.click()
+        time.sleep(5)
+        print("Clicked Part Number tab")
+    except Exception as e:
+        print(f"Could not click Part Number tab: {e}")
+        return [], []
+
+    part_numbers = []
+    link_numbers = []
+    
+    # Thử nhiều cách khác nhau để tìm bảng Part Number
+    part_table_selectors = [
+        (By.CLASS_NAME, "PartNumberColumn_tableBase__DK2Le"),
+        (By.CSS_SELECTOR, "[class*='PartNumberColumn'][class*='table']"),
+        (By.XPATH, "//table[contains(@class, 'PartNumber')]"),
+        (By.XPATH, "//div[contains(@class, 'PartNumber') and contains(@class, 'table')]"),
+        (By.XPATH, "//div[contains(@class, 'table')]//a[contains(@href, 'detail')]")
+    ]
+    
+    table_found = False
+    for i, (selector_type, selector) in enumerate(part_table_selectors):
+        try:
+            print(f"Trying Part Number table selector {i+1}: {selector}")
+            if selector_type == By.XPATH and "//a[contains(@href, 'detail')]" in selector:
+                # Tìm tất cả các link Part Number trực tiếp
+                part_links = driver.find_elements(By.XPATH, "//a[contains(@href, 'detail')]")
+                print(f"Found {len(part_links)} potential part number links")
+                
+                for link in part_links:
+                    try:
+                        href = link.get_attribute("href")
+                        title = link.get_attribute("title") or link.text.strip()
+                        if href and "detail" in href and title:
+                            part_numbers.append(title)
+                            link_numbers.append(href)
+                    except Exception as e:
+                        print(f"Error extracting link data: {e}")
+                        continue
+                
+                if part_numbers:
+                    table_found = True
+                    print(f"Extracted {len(part_numbers)} part numbers from links")
+                    break
+            else:
+                table_part_number = wait.until(EC.presence_of_element_located((selector_type, selector)))
+                part_elements = table_part_number.find_elements(By.CLASS_NAME, "PartNumberColumn_dataRow__43D6Y")
+                
+                if not part_elements:
+                    # Thử tìm với selector khác
+                    part_elements = table_part_number.find_elements(By.XPATH, ".//tr | .//div[contains(@class, 'row')]")
+                
+                print(f"Found {len(part_elements)} part number rows")
+                
+                for element in part_elements:
+                    try:
+                        a_elements = element.find_elements(By.TAG_NAME, "a")
+                        if a_elements:
+                            title = a_elements[0].get_attribute("title") or a_elements[0].text.strip()
+                            link = a_elements[0].get_attribute("href")
+                            if title and link:
+                                part_numbers.append(title)
+                                link_numbers.append(link)
+                    except Exception as e:
+                        print(f"Error extracting element data: {e}")
+                        continue
+                
+                if part_numbers:
+                    table_found = True
+                    print(f"Extracted {len(part_numbers)} part numbers from table")
+                    break
+                    
+        except Exception as e:
+            print(f"Selector {i+1} failed: {e}")
+            continue
+    
+    if not table_found:
+        print("Could not find Part Number table, trying alternative approach...")
+        try:
+            # Tìm tất cả các phần tử có thể chứa Part Number
+            all_elements = driver.find_elements(By.XPATH, "//*[contains(text(), 'Part Number') or contains(@class, 'part') or contains(@class, 'number')]")
+            print(f"Found {len(all_elements)} potential part number elements")
+            
+            for elem in all_elements:
+                try:
+                    text = elem.text.strip()
+                    if text and len(text) > 3:  # Loại bỏ text quá ngắn
+                        part_numbers.append(text)
+                        link_numbers.append("")  # Không có link
+                except:
+                    continue
+        except Exception as e:
+            print(f"Alternative approach failed: {e}")
+    
+    print(f"Final part_numbers count: {len(part_numbers)}")
+    if part_numbers:
+        print("Sample part numbers:", part_numbers[:3])
+    print(f"Final link_numbers count: {len(link_numbers)}")
+    
+    return part_numbers, link_numbers
+
+
+def get_data_prices_days_ship(driver):
+    wait = WebDriverWait(driver, 60)
+    time.sleep(5)
+    # Scroll to trigger lazy loading
+    driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+    time.sleep(2)
+    driver.execute_script("window.scrollTo(0, 0);")
+    time.sleep(2)
+
+    # Chờ đúng nút có id 'codeList'
+    dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='detailTabs']/div/div/div/ul/li[2]")))
+    time.sleep(5)
+    dropdown_btn.click()
+    time.sleep(5)
+    prices=[]
+    days_to_ship=[]
+    table_price_days_ship=wait.until(EC.presence_of_element_located((By.CLASS_NAME, "PartNumberAsideColumns_table__6fKVE")))
+    rows=table_price_days_ship.find_elements(By.CLASS_NAME, "PartNumberAsideColumns_dataRow__OUw8N")
+    for row in rows:
+        #lấy giá
+        price_cell=row.find_element(By.CLASS_NAME, "PartNumberAsideColumns_dataCellBase__tIm9A")
+        price=price_cell.find_element(By.CLASS_NAME, "PartNumberAsideColumns_data__jikjP").find_element(By.TAG_NAME, "span").text.strip()
+        prices.append(price)
+        #lấy ngày giao hàng
+        day_to_ship_cell=row.find_element(By.CLASS_NAME, "PartNumberAsideColumns_daysToShipDataCell__JRaMu")
+        day_to_ship=day_to_ship_cell.find_element(By.CLASS_NAME, "PartNumberAsideColumns_data__jikjP").find_element(By.TAG_NAME, "span").text.strip()
+        days_to_ship.append(day_to_ship)
+    print("prices:", prices)
+    print("days_to_ship:", days_to_ship)
+    return prices, days_to_ship
+def get_other_data(driver):
+    wait = WebDriverWait(driver, 60)
+    time.sleep(10)  # Tăng thời gian chờ
+    
+    # Scroll để load toàn bộ trang
     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
     time.sleep(3)
     driver.execute_script("window.scrollTo(0, 0);")
     time.sleep(3)
-
-    # Try multiple selectors for the dropdown button
-    dropdown_btn = None
-    selectors = [
-        "//*[@id='codeList']",
-        "//div[contains(@class,'PartNumberDropDownList_partNumberSelection')]",
-        "//button[contains(@class,'dropdown')]",
-        "//div[contains(@class,'dropdown')]",
-        "//*[contains(@class,'codeList')]",
-        "//*[contains(@class,'partNumber')]"
+    
+    print("Current URL:", driver.current_url)
+    print("Page title:", driver.title)
+    
+    # Thử nhiều cách khác nhau để tìm tab Part Number
+    dropdown_selectors = [
+        "//*[@id='detailTabs']/div/div/div/ul/li[2]",
+        "//li[contains(text(), 'Part Number')]",
+        "//a[contains(text(), 'Part Number')]",
+        "//button[contains(text(), 'Part Number')]",
+        "//div[contains(@class, 'tab') and contains(text(), 'Part Number')]",
+        "//span[contains(text(), 'Part Number')]"
     ]
     
-    for selector in selectors:
+    dropdown_clicked = False
+    for i, selector in enumerate(dropdown_selectors):
         try:
-            print(f"Trying selector: {selector}")
+            print(f"Trying dropdown selector {i+1}: {selector}")
             dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
-            print(f"Found dropdown button with selector: {selector}")
-            break
-        except Exception as e:
-            print(f"Selector {selector} failed: {e}")
-            continue
-    
-    if not dropdown_btn:
-        # If no dropdown found, try to find the table directly
-        print("No dropdown button found, trying to locate table directly...")
-        try:
-            table = wait.until(EC.presence_of_element_located(
-                (By.CLASS_NAME, "PartNumberAsideColumns_table__6fKVE"))
-            )
-            print("Found table directly without dropdown")
-        except Exception as e:
-            print(f"Could not find table directly: {e}")
-            # Try alternative table selectors
-            alternative_selectors = [
-                "//table[contains(@class,'table')]",
-                "//div[contains(@class,'table')]",
-                "//*[contains(@class,'PartNumber')]"
-            ]
-            table = None
-            for selector in alternative_selectors:
-                try:
-                    table = wait.until(EC.presence_of_element_located((By.XPATH, selector)))
-                    print(f"Found table with alternative selector: {selector}")
-                    break
-                except Exception:
-                    continue
-            
-            if not table:
-                print("ERROR: Could not find any table or dropdown. Page structure may have changed.")
-                return []
-    else:
-        # Click the dropdown if found
-        try:
-            print("Clicking dropdown button...")
+            driver.execute_script("arguments[0].scrollIntoView(true);", dropdown_btn)
+            time.sleep(2)
             dropdown_btn.click()
             time.sleep(5)
-        except Exception as e:
-            print(f"Error clicking dropdown: {e}")
-            # Continue anyway, the table might be visible
-
-    # Try to find the table with multiple selectors
-    table = None
-    table_selectors = [
-        (By.CLASS_NAME, "PartNumberColumn_tableBase__DK2Le"),  # Updated class name
-        (By.CLASS_NAME, "PartNumberAsideColumns_table__6fKVE"),
-        (By.XPATH, "//*[@id='partNumberListTable']/div/div[2]/table"),
-        (By.XPATH, "//table[contains(@class,'table')]"),
-        (By.XPATH, "//div[contains(@class,'table')]"),
-        (By.CSS_SELECTOR, "table"),
-        (By.CSS_SELECTOR, "[class*='table']")
-    ]
-    
-    for selector_type, selector in table_selectors:
-        try:
-            print(f"Trying table selector: {selector}")
-            table = wait.until(EC.presence_of_element_located((selector_type, selector)))
-            print(f"Found table with selector: {selector}")
+            print(f"Successfully clicked dropdown button with selector {i+1}")
+            dropdown_clicked = True
             break
         except Exception as e:
-            print(f"Table selector {selector} failed: {e}")
+            print(f"Selector {i+1} failed: {e}")
             continue
     
-    if not table:
-        print("ERROR: Could not find any table. Returning empty list.")
-        return []
-
-    # Try multiple approaches to find rows
-    rows = []
-    row_selectors = [
-        "tbody tr.PartNumberColumn_dataRow__DK2Le",  # Updated for new class
-        "tbody tr.PartNumberAsideColumns_dataRow__OUw8N",
-        "tbody tr",
-        "tr.PartNumberColumn_dataRow__DK2Le",  # Updated for new class
-        "tr.PartNumberAsideColumns_dataRow__OUw8N",
-        "tr[class*='dataRow']",
-        "tr"
-    ]
-    
-    for selector in row_selectors:
+    if not dropdown_clicked:
+        print("All dropdown selectors failed, trying to find any clickable elements...")
         try:
-            rows = table.find_elements(By.CSS_SELECTOR, selector)
-            if rows:
-                print(f"Found {len(rows)} rows with selector: {selector}")
-                break
-        except Exception as e:
-            print(f"Row selector {selector} failed: {e}")
-            continue
-    
-    if not rows:
-        print("ERROR: Could not find any rows in the table.")
-        return []
-
-    part_numbers = []
-    prices = []
-    days_to_ship = []
-    
-    print("=== DEBUGGING TABLE STRUCTURE ===")
-    # Debug first few rows to understand structure
-    for i, row in enumerate(rows[:5]):  # Check first 5 rows
-        try:
-            cells = row.find_elements(By.TAG_NAME, "td")
-            print(f"Row {i} has {len(cells)} cells:")
-            for j, cell in enumerate(cells):
-                cell_text = cell.text.strip()
-                print(f"  Cell {j}: '{cell_text}'")
-        except Exception as e:
-            print(f"Error debugging row {i}: {e}")
-    print("=== END DEBUG ===")
-    
-    # Look for part numbers in the page source or try to find them in a different way
-    print("=== SEARCHING FOR PART NUMBERS ===")
-    
-    # First, try to find part numbers from dropdown options (most reliable)
-    print("=== SEARCHING DROPDOWN OPTIONS ===")
-    try:
-        # Look for dropdown options that contain part numbers
-        dropdown_options = driver.find_elements(By.XPATH, "//div[contains(@class,'PartNumberDropDownList_partNumberOption')]")
-        print(f"Found {len(dropdown_options)} dropdown options")
-        
-        for option in dropdown_options:
-            try:
-                text = option.text.strip()
-                if text and len(text) >= 4 and not any(currency in text for currency in ["VND", "$", "¥", "€", "£"]):
-                    if text not in part_numbers:
-                        part_numbers.append(text)
-                        print(f"Found part number from dropdown: {text}")
-            except:
-                continue
-        
-        # If we found part numbers from dropdown, use them
-        if part_numbers:
-            print(f"Using {len(part_numbers)} part numbers from dropdown options")
-            return part_numbers[:60]  # Limit to exactly 60
-                
-    except Exception as e:
-        print(f"Error finding dropdown options: {e}")
-    
-    # If no part numbers from dropdown, try page source
-    if not part_numbers:
-        print("=== SEARCHING PAGE SOURCE ===")
-        try:
-            # Look for part number patterns in the page
-            page_source = driver.page_source
+            # Tìm tất cả các phần tử có thể click
+            clickable_elements = driver.find_elements(By.XPATH, "//*[contains(@class, 'tab') or contains(@class, 'button') or contains(@class, 'link')]")
+            print(f"Found {len(clickable_elements)} potentially clickable elements")
             
-            # Common bearing part number patterns
-            import re
-            part_number_patterns = [
-                r'\b\d{4}[-_]?[A-Z]{2,3}\b',  # 6200-2RS, 6200ZZ
-                r'\b\d{4}[-_]?[A-Z]\d[A-Z]\b',  # 6200-2Z
-                r'\b[A-Z]{2,3}\d{4}\b',  # ZZ6200
-                r'\b\d{4}[A-Z]{2,3}\b',  # 6200ZZ
-            ]
-            
-            found_part_numbers = []
-            for pattern in part_number_patterns:
-                matches = re.findall(pattern, page_source)
-                found_part_numbers.extend(matches)
-            
-            # Remove duplicates and filter out obvious non-part-numbers
-            unique_part_numbers = []
-            for pn in set(found_part_numbers):
-                if len(pn) >= 4 and not any(currency in pn for currency in ["VND", "$", "¥", "€", "£"]):
-                    unique_part_numbers.append(pn)
-            
-            print(f"Found {len(unique_part_numbers)} potential part numbers from page source: {unique_part_numbers}")
-            
-            # Don't return immediately, continue to table extraction
-            part_numbers.extend(unique_part_numbers)
-                
-        except Exception as e:
-            print(f"Error searching page source: {e}")
-    
-    # Now try to extract from table - this should be the main source
-    print("=== EXTRACTING FROM TABLE ROWS ===")
-    
-    for i, row in enumerate(rows):
-        try:
-            cells = row.find_elements(By.TAG_NAME, "td")
-            if not cells:
-                continue
-            
-            # Look for part number in each cell
-            for j, cell in enumerate(cells):
-                cell_text = cell.text.strip()
-                if not cell_text:
-                    continue
-                
-                # Part number validation - must contain both letters and numbers
-                if (len(cell_text) >= 4 and 
-                    any(char.isdigit() for char in cell_text) and
-                    any(char.isalpha() for char in cell_text) and
-                    not any(currency in cell_text for currency in ["VND", "$", "¥", "€", "£"]) and
-                    not "day" in cell_text.lower() and
-                    not "ship" in cell_text.lower() and
-                    not "qty" in cell_text.lower() and
-                    not "discount" in cell_text.lower() and
-                    not cell_text.isdigit()):  # Not just numbers
-                    
-                    # Additional validation for bearing part numbers
-                    if (cell_text.startswith(('6', '7', '8', '9', 'C-E')) or  # Common bearing series including C-E
-                        '-' in cell_text or
-                        any(suffix in cell_text.upper() for suffix in ['RS', 'ZZ', 'Z', '2RS', '2Z', 'GTM'])):
-                        if cell_text not in part_numbers:
-                            part_numbers.append(cell_text)
-                            print(f"Found part number from table: {cell_text}")
+            for i, elem in enumerate(clickable_elements[:5]):  # Thử 5 phần tử đầu tiên
+                try:
+                    text = elem.text.strip()
+                    print(f"Element {i+1}: '{text}'")
+                    if 'part' in text.lower() or 'number' in text.lower():
+                        driver.execute_script("arguments[0].scrollIntoView(true);", elem)
+                        time.sleep(1)
+                        elem.click()
+                        time.sleep(5)
+                        print(f"Clicked element with text: '{text}'")
+                        dropdown_clicked = True
                         break
-            
-        except Exception as e:
-            print(f"Error processing row {i}: {e}")
-            continue
-    
-    # If still no part numbers, try to find them in the page source with broader patterns
-    if not part_numbers:
-        print("=== SEARCHING PAGE SOURCE WITH BROADER PATTERNS ===")
-        try:
-            page_source = driver.page_source
-            
-            # Broader patterns for part numbers
-            import re
-            broader_patterns = [
-                r'\b\d{4}[A-Z]{2,3}\b',  # 6200ZZ, 2520GTM
-                r'\b\d{4}[-_]?[A-Z]{2,3}\b',  # 6200-2RS, 6200ZZ
-                r'\b[A-Z]{2,3}\d{4}\b',  # ZZ6200
-                r'\b\d{4}[A-Z]\d[A-Z]\b',  # 6200-2Z
-                r'\b\d{4}[A-Z]{1,4}\b',  # Any 4 digits followed by 1-4 letters
-            ]
-            
-            for pattern in broader_patterns:
-                matches = re.findall(pattern, page_source)
-                for match in matches:
-                    if match not in part_numbers and len(match) >= 4:
-                        part_numbers.append(match)
-                        print(f"Found part number from source: {match}")
-                        
-        except Exception as e:
-            print(f"Error searching page source: {e}")
-    
-    print("Final part_numbers:", part_numbers)
-    print("part_numbers length:", len(part_numbers))
-
-    return part_numbers
-
-
-# # ====== HÀM LẤY THÔNG SỐ MỖI PART (có retry) ======
-# def extract_specifications(driver, part_number, max_retry=3):
-#     wait = WebDriverWait(driver, 60)
-
-#     for attempt in range(1, max_retry + 1):
-#         try:
-#             # Mở dropdown
-#             dropdown_btn = wait.until(EC.element_to_be_clickable(
-#                 (By.XPATH, "//div[contains(@class,'PartNumberDropDownList_partNumberSelection')]"))
-#             )
-#             dropdown_btn.click()
-#             time.sleep(3)
-
-#             # Click vào part_number tương ứng
-#             option = wait.until(EC.element_to_be_clickable(
-#                 (By.XPATH, f"//div[@class='PartNumberDropDownList_partNumberOption__KnDz0' and @title='{part_number}']"))
-#             )
-#             option.click()
-#             time.sleep(6)
-
-#             # Lấy bảng thông số
-#             spec_table = wait.until(EC.presence_of_element_located(
-#                 (By.CSS_SELECTOR, "div.SpecTable_tableWrapper__TkrZl"))
-#             )
-
-#             rows = spec_table.find_elements(By.CSS_SELECTOR, "tr")
-#             spec_data = {"Part Number": part_number}
-
-#             for row in rows:
-#                 try:
-#                     cols = row.find_elements(By.CSS_SELECTOR, "td")
-#                     if len(cols) >= 2:
-#                         key = cols[0].text.strip()
-#                         value = cols[1].text.strip()
-#                         spec_data[key] = value
-#                 except:
-#                     continue
-
-#             # Lấy giá
-#             try:
-#                 price_elem = driver.find_element(By.CSS_SELECTOR, "span.product_price span")
-#                 spec_data["Price"] = price_elem.text.strip()
-#             except:
-#                 spec_data["Price"] = ""
-
-#             return spec_data
-
-#         except Exception as e:
-#             print(f"⚠️ Thử lần {attempt} cho {part_number} thất bại: {e}")
-#             if attempt < max_retry:
-#                 print("⏳ Thử lại...")
-#                 time.sleep(5)
-#             else:
-#                 print(f"❌ Bỏ qua {part_number} sau {max_retry} lần thử.")
-#                 return {"Part Number": part_number, "Error": str(e)}
-
-def get_data_match_part_number(driver, index, part_number):
-    wait = WebDriverWait(driver, 30)  # Reduced timeout
-    
-    # Check if driver is still connected
-    try:
-        driver.current_url
-    except Exception as e:
-        print(f"Driver connection lost for {part_number}: {e}")
-        return {"Part Number": part_number, "Error": "Driver connection lost"}
-    
-    # Try multiple selectors for the dropdown button
-    dropdown_btn = None
-    selectors = [
-        "//*[@id='codeList']",
-        "//div[contains(@class,'PartNumberDropDownList_partNumberSelection')]",
-        "//button[contains(@class,'dropdown')]",
-        "//div[contains(@class,'dropdown')]",
-        "//*[contains(@class,'codeList')]",
-        "//*[contains(@class,'partNumber')]"
-    ]
-    
-    for selector in selectors:
-        try:
-            print(f"Trying dropdown selector: {selector}")
-            dropdown_btn = wait.until(EC.element_to_be_clickable((By.XPATH, selector)))
-            print(f"Found dropdown button with selector: {selector}")
-            break
-        except Exception as e:
-            print(f"Dropdown selector {selector} failed: {e}")
-            continue
-    
-    if dropdown_btn:
-        try:
-            print("Clicking dropdown button...")
-            dropdown_btn.click()
-            time.sleep(3)
-        except Exception as e:
-            print(f"Error clicking dropdown for {part_number}: {e}")
-    else:
-        print(f"No dropdown button found for {part_number}, continuing without dropdown click")
-
-    # Try to find the main part number table (PartNumberColumn_tableBase__DK2Le)
-    table = None
-    table_selectors = [
-        (By.CLASS_NAME, "PartNumberColumn_tableBase__DK2Le"),  # Main part number table
-        (By.CLASS_NAME, "PartNumberAsideColumns_table__6fKVE"),  # Alternative table
-        (By.XPATH, "//table[contains(@class,'PartNumber')]"),
-        (By.CSS_SELECTOR, "[class*='PartNumber']")
-    ]
-    
-    for selector_type, selector in table_selectors:
-        try:
-            print(f"Trying table selector: {selector}")
-            table = wait.until(EC.presence_of_element_located((selector_type, selector)))
-            print(f"Found table with selector: {selector}")
-            break
-        except Exception as e:
-            print(f"Table selector {selector} failed: {e}")
-            continue
-    
-    if not table:
-        print(f"Error locating table for {part_number}")
-        return {"Part Number": part_number, "Error": "Table not found"}
-
-    # Try to find the table that contains prices and other data
-    price_table = None
-    price_table_selectors = [
-        (By.CLASS_NAME, "PartNumberAsideColumns_table__6fKVE"),  # Price table
-        (By.CLASS_NAME, "PartNumberSpecColumns_tableBase__VK5Nd"),  # Spec table
-        (By.XPATH, "//table[contains(@class,'Aside')]"),
-        (By.XPATH, "//table[contains(@class,'Spec')]"),
-        (By.CSS_SELECTOR, "[class*='Aside']"),
-        (By.CSS_SELECTOR, "[class*='Spec']")
-    ]
-    
-    for selector_type, selector in price_table_selectors:
-        try:
-            print(f"Trying price table selector: {selector}")
-            price_table = wait.until(EC.presence_of_element_located((selector_type, selector)))
-            print(f"Found price table with selector: {selector}")
-            break
-        except Exception as e:
-            print(f"Price table selector {selector} failed: {e}")
-            continue
-
-    # Get all rows from the main table
-    rows = []
-    row_selectors = [
-        "tbody tr",
-        "tr[class*='dataRow']",
-        "tr"
-    ]
-    
-    for selector in row_selectors:
-        try:
-            rows = table.find_elements(By.CSS_SELECTOR, selector)
-            if rows:
-                print(f"Found {len(rows)} rows with selector: {selector}")
-                break
-        except Exception as e:
-            print(f"Row selector {selector} failed: {e}")
-            continue
-
-    if not rows:
-        print(f"No rows found in table for {part_number}")
-        return {"Part Number": part_number, "Error": "No rows found"}
-
-    # Prepare spec_data with default values
-    spec_data = {
-        "Index": index,
-        "Part Number": part_number,
-        "Price": "",
-        "Days to Ship": "",
-        "Link": "",
-        "Minimum order Qty": "",
-        "Volumn Discount": "",
-        "Inner Dia. d": "",
-        "Outer Dia. D": "",
-        "Width B (or T)": "",
-        "Basic Load Rating Cr (Dynamic)": "",
-        "Basic Load Rating Cor (Static)": "",
-        "Weight": ""
-    }
-
-    # Find the row that matches the part_number
-    found_row = None
-    for row in rows:
-        try:
-            # Look for part number in the row
-            cells = row.find_elements(By.TAG_NAME, "td")
-            if not cells:
-                continue
-                
-            # Check each cell for the part number
-            for cell in cells:
-                cell_text = cell.text.strip()
-                if cell_text == part_number:
-                    found_row = row
-                    print(f"Found matching row for {part_number}")
-                    break
-            
-            if found_row:
-                break
-                
-        except Exception as e:
-            print(f"Error checking row for {part_number}: {e}")
-            continue
-
-    if found_row:
-        try:
-            # Extract data from the found row
-            cells = found_row.find_elements(By.TAG_NAME, "td")
-            
-            # Get link if available
-            try:
-                link_elements = found_row.find_elements(By.CSS_SELECTOR, "a[class*='Link'], a[class*='link']")
-                if link_elements:
-                    spec_data["Link"] = link_elements[0].get_attribute("href") or ""
-            except:
-                pass
-            
-            # Get price and other data from cells in THIS specific row
-            for i, cell in enumerate(cells):
-                cell_text = cell.text.strip()
-                
-                # Look for price (contains VND, $, etc.) in this specific cell
-                if any(currency in cell_text for currency in ["VND", "$", "¥", "€", "£"]):
-                    spec_data["Price"] = cell_text
-                    print(f"Found price for {part_number}: {cell_text}")
-                
-                # Look for days to ship
-                if "day" in cell_text.lower() or "ship" in cell_text.lower():
-                    spec_data["Days to Ship"] = cell_text
-                
-                # Look for quantity
-                if "qty" in cell_text.lower() or cell_text.isdigit():
-                    spec_data["Minimum order Qty"] = cell_text
-                
-                # Look for discount
-                if "discount" in cell_text.lower():
-                    spec_data["Volumn Discount"] = cell_text
-            
-            # If no price found in the row, try to find it in the price table
-            if not spec_data["Price"] and price_table:
-                try:
-                    # Get rows from price table
-                    price_rows = price_table.find_elements(By.CSS_SELECTOR, "tbody tr, tr")
-                    print(f"Found {len(price_rows)} rows in price table")
-                    
-                    # Find the row index of the current part number in the main table
-                    part_number_row_index = None
-                    for i, row in enumerate(rows):
-                        try:
-                            cells = row.find_elements(By.TAG_NAME, "td")
-                            for cell in cells:
-                                cell_text = cell.text.strip()
-                                if cell_text == part_number:
-                                    part_number_row_index = i
-                                    print(f"Part number {part_number} is at row index {i}")
-                                    break
-                            if part_number_row_index is not None:
-                                break
-                        except:
-                            continue
-                    
-                    # Get price from the corresponding row in price table
-                    if part_number_row_index is not None and part_number_row_index < len(price_rows):
-                        try:
-                            price_row = price_rows[part_number_row_index]
-                            price_cells = price_row.find_elements(By.TAG_NAME, "td")
-                            print(f"Checking price row {part_number_row_index} with {len(price_cells)} cells")
-                            
-                            for price_cell in price_cells:
-                                cell_text = price_cell.text.strip()
-                                
-                                # Look for price
-                                if any(currency in cell_text for currency in ["VND", "$", "¥", "€", "£"]):
-                                    spec_data["Price"] = cell_text
-                                    print(f"Found price for {part_number} from price table row {part_number_row_index}: {cell_text}")
-                                    break
-                                
-                                # Look for other data
-                                if "day" in cell_text.lower() or "ship" in cell_text.lower():
-                                    spec_data["Days to Ship"] = cell_text
-                                elif "qty" in cell_text.lower() or cell_text.isdigit():
-                                    spec_data["Minimum order Qty"] = cell_text
-                                elif "discount" in cell_text.lower():
-                                    spec_data["Volumn Discount"] = cell_text
-                        except Exception as e:
-                            print(f"Error getting price from row {part_number_row_index}: {e}")
-                    
-                    # If still no price, try to find it by searching all rows
-                    if not spec_data["Price"]:
-                        print(f"No price found for {part_number} at row {part_number_row_index}, searching all rows...")
-                        for i, price_row in enumerate(price_rows):
-                            try:
-                                price_cells = price_row.find_elements(By.TAG_NAME, "td")
-                                for price_cell in price_cells:
-                                    cell_text = price_cell.text.strip()
-                                    
-                                    # Look for price
-                                    if any(currency in cell_text for currency in ["VND", "$", "¥", "€", "£"]):
-                                        spec_data["Price"] = cell_text
-                                        print(f"Found price for {part_number} from price table row {i}: {cell_text}")
-                                        break
-                                
-                                if spec_data["Price"]:
-                                    break
-                            except:
-                                continue
                 except Exception as e:
-                    print(f"Error extracting from price table: {e}")
+                    print(f"Failed to click element {i+1}: {e}")
+                    continue
+        except Exception as e:
+            print(f"Failed to find clickable elements: {e}")
+    
+    if not dropdown_clicked:
+        print("Could not find or click any dropdown button")
+        print("Trying to extract data without clicking dropdown...")
+        
+        # Thử lấy dữ liệu trực tiếp từ trang
+        try:
+            # Tìm tất cả các bảng trên trang
+            tables = driver.find_elements(By.TAG_NAME, "table")
+            print(f"Found {len(tables)} tables on the page")
             
-            # If still no price found, try to find it in the page
-            if not spec_data["Price"]:
-                try:
-                    # Look for price elements that might be associated with this part number
-                    price_elements = driver.find_elements(By.CSS_SELECTOR, "[class*='PartNumberAsideColumns_data__jikjP'], [class*='price'], [class*='Price']")
-                    for elem in price_elements:
-                        text = elem.text.strip()
-                        if text and any(currency in text for currency in ["VND", "$", "¥", "€", "£"]):
-                            # Check if this price element is near or associated with our part number
-                            try:
-                                # Try to find if this price element is in the same row or near the part number
-                                parent = elem.find_element(By.XPATH, "./ancestor::tr[contains(., '" + part_number + "')]")
-                                spec_data["Price"] = text
-                                print(f"Found price for {part_number} from page: {text}")
-                                break
-                            except:
-                                continue
-                except:
-                    pass
+            # Tìm tất cả các div có thể chứa dữ liệu
+            data_divs = driver.find_elements(By.XPATH, "//div[contains(@class, 'table') or contains(@class, 'data') or contains(@class, 'spec')]")
+            print(f"Found {len(data_divs)} potential data containers")
+            
+            # Thử lấy thông tin sản phẩm cơ bản
+            product_info = {}
+            
+            # Tìm tên sản phẩm
+            try:
+                product_name = driver.find_element(By.XPATH, "//h1 | //h2 | //div[contains(@class, 'title')] | //div[contains(@class, 'name')]")
+                product_info['Product Name'] = [product_name.text.strip()]
+                print(f"Found product name: {product_name.text.strip()}")
+            except:
+                product_info['Product Name'] = ['N/A']
+            
+            # Tìm mã sản phẩm
+            try:
+                product_code = driver.find_element(By.XPATH, "//div[contains(text(), 'Part Number') or contains(text(), 'Model') or contains(text(), 'Code')]")
+                product_info['Product Code'] = [product_code.text.strip()]
+                print(f"Found product code: {product_code.text.strip()}")
+            except:
+                product_info['Product Code'] = ['N/A']
+            
+            # Tìm giá
+            try:
+                price_elem = driver.find_element(By.XPATH, "//div[contains(@class, 'price') or contains(text(), 'Price') or contains(text(), 'Giá')]")
+                product_info['Price'] = [price_elem.text.strip()]
+                print(f"Found price: {price_elem.text.strip()}")
+            except:
+                product_info['Price'] = ['N/A']
+            
+            if len(product_info) > 0:
+                print(f"Extracted basic product info: {list(product_info.keys())}")
+                return product_info
+            else:
+                print("No basic product info found")
+                return {}
                 
         except Exception as e:
-            print(f"Error extracting data for {part_number}: {e}")
-    else:
-        print(f"Part number {part_number} not found in table.")
-        spec_data["Error"] = "Part number not found"
+            print(f"Failed to extract data without dropdown: {e}")
+            return {}
+    
+    ####################################Get name columns
+    print("Trying to extract table headers...")
+    try:
+        table_header = wait.until(EC.presence_of_element_located(
+            (By.CLASS_NAME, "PartNumberSpecHeader_tableBase__Y5X_f")
+        ))
+        cols_header = table_header.find_elements(By.CLASS_NAME, "PartNumberSpecHeader_headerCell__r3GLv")
+        print(f"Found {len(cols_header)} header columns")
 
-    print("spec_data:", spec_data)
-    return spec_data
+        table_heade_data = {}
 
-def debug_page_structure(driver):
-    """Debug function to understand the page structure"""
-    print("=== DEBUGGING PAGE STRUCTURE ===")
-    
-    # Check for common elements
+        for i, col in enumerate(cols_header):
+            html = col.get_attribute("innerHTML")
+            soup = BeautifulSoup(html, "html.parser")
+            # lấy toàn bộ text trong cell, kể cả <div>, <p>, text thô
+            header_text = soup.get_text(" ", strip=True)
+            if header_text:  # Only add non-empty headers
+                table_heade_data[header_text] = []
+                print(f"Header {i+1}: '{header_text}'")
+    except Exception as e:
+        print(f"Could not extract table headers: {e}")
+        # Thử tìm bảng khác
+        try:
+            print("Trying alternative table header selector...")
+            table_header = wait.until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "[class*='PartNumberSpecHeader']")
+            ))
+            cols_header = table_header.find_elements(By.CSS_SELECTOR, "[class*='headerCell']")
+            print(f"Found {len(cols_header)} header columns with alternative selector")
+            
+            table_heade_data = {}
+            for i, col in enumerate(cols_header):
+                header_text = col.text.strip()
+                if header_text:
+                    table_heade_data[header_text] = []
+                    print(f"Header {i+1}: '{header_text}'")
+        except Exception as e2:
+            print(f"Alternative header extraction also failed: {e2}")
+            return {}
+
+    ####################################Get data rows
+    print("Trying to extract table data...")
     try:
-        elements = driver.find_elements(By.XPATH, "//*[@id='codeList']")
-        print(f"Found {len(elements)} elements with id 'codeList'")
-    except:
-        print("No elements with id 'codeList' found")
-    
+        table_other_data = wait.until(
+            EC.presence_of_element_located((By.CLASS_NAME, "PartNumberSpecColumns_tableBase__VK5Nd"))
+        )
+
+        rows = table_other_data.find_elements(By.CLASS_NAME, "PartNumberSpecColumns_dataRow__M4B4a")
+        print(f"Found {len(rows)} data rows")
+        
+        # Nếu không tìm thấy rows, thử scroll và đợi thêm
+        if len(rows) == 0:
+            print("No rows found, trying to scroll and wait...")
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(5)
+            driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(3)
+            
+            # Thử tìm lại rows
+            rows = table_other_data.find_elements(By.CLASS_NAME, "PartNumberSpecColumns_dataRow__M4B4a")
+            print(f"After scroll: Found {len(rows)} data rows")
+
+        for row_idx, row in enumerate(rows):
+            html = row.get_attribute("innerHTML")
+            soup = BeautifulSoup(html, "html.parser")
+            values = [div.get_text(strip=True) for div in soup.select("div.PartNumberSpecCells_data__u6ZZX")]
+            print(f"Row {row_idx+1}: {len(values)} values")
+            
+            # Fix: Convert keys to list before indexing
+            header_keys = list(table_heade_data.keys())
+            for i in range(len(header_keys)):
+                if i < len(values):  # Add bounds checking
+                    table_heade_data[header_keys[i]].append(values[i])
+                else:
+                    table_heade_data[header_keys[i]].append('')  # Fill empty values
+    except Exception as e:
+        print(f"Could not extract table data: {e}")
+        # Thử tìm bảng dữ liệu khác
+        try:
+            print("Trying alternative table data selector...")
+            table_other_data = wait.until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='PartNumberSpecColumns']"))
+            )
+            rows = table_other_data.find_elements(By.CSS_SELECTOR, "[class*='dataRow']")
+            print(f"Found {len(rows)} data rows with alternative selector")
+            
+            for row_idx, row in enumerate(rows):
+                cells = row.find_elements(By.CSS_SELECTOR, "[class*='data']")
+                values = [cell.text.strip() for cell in cells]
+                print(f"Row {row_idx+1}: {len(values)} values")
+                
+                header_keys = list(table_heade_data.keys())
+                for i in range(len(header_keys)):
+                    if i < len(values):
+                        table_heade_data[header_keys[i]].append(values[i])
+                    else:
+                        table_heade_data[header_keys[i]].append('')
+        except Exception as e2:
+            print(f"Alternative data extraction also failed: {e2}")
+            return {}
+
+    print(f"Final table_heade_data: {len(table_heade_data)} columns")
+    for key, values in table_heade_data.items():
+        print(f"  {key}: {len(values)} values")
+    return table_heade_data
+def get_url_From_file(file_path,start_index,end_index):
     try:
-        elements = driver.find_elements(By.XPATH, "//*[contains(@class,'dropdown')]")
-        print(f"Found {len(elements)} elements with 'dropdown' in class")
-    except:
-        print("No dropdown elements found")
-    
+        df = pd.read_csv(file_path)
+        if 'Product URL' in df.columns:
+            urls = df['Product URL'].tolist()
+            # Add bounds checking
+            if start_index < 0:
+                start_index = 0
+            if end_index > len(urls):
+                end_index = len(urls)
+            if start_index >= end_index:
+                print("⚠ Invalid index range: start_index >= end_index")
+                return []
+            return urls[start_index:end_index]
+        else:
+            print("⚠ 'Product URL' column not found in the CSV file.")
+            print(f"Available columns: {list(df.columns)}")
+            return []
+    except FileNotFoundError:
+        print(f"⚠ File not found: {file_path}")
+        return []
+    except Exception as e:
+        print(f"⚠ Error reading file {file_path}: {e}")
+        return []
+def get_data_from_url(driver, url):
     try:
-        elements = driver.find_elements(By.XPATH, "//table")
-        print(f"Found {len(elements)} table elements")
-    except:
-        print("No table elements found")
+        driver.get(url)
+        time.sleep(5)
+        
+        # Check if page loaded successfully
+        if "misumi-ec.com" not in driver.current_url:
+            print(f"Page redirect detected. Current URL: {driver.current_url}")
+        
+        # Lấy Part Numbers trước
+        print("=== Lấy Part Numbers ===")
+        part_numbers, link_numbers = extract_all_part_numbers(driver)
+        
+        # Lấy Prices và Days to Ship
+        print("=== Lấy Prices và Days to Ship ===")
+        prices, days_to_ship = get_data_prices_days_ship(driver)
+        
+        # Lấy Specifications
+        print("=== Lấy Specifications ===")
+        table_heade_data = get_other_data(driver)
+        
+        # Kết hợp tất cả dữ liệu
+        combined_data = {}
+        
+        # Thêm Part Numbers
+        if part_numbers:
+            combined_data['Part Number'] = part_numbers
+            print(f"Added {len(part_numbers)} Part Numbers")
+        
+        # Thêm Prices
+        if prices:
+            combined_data['Price'] = prices
+            print(f"Added {len(prices)} Prices")
+        
+        # Thêm Days to Ship
+        if days_to_ship:
+            combined_data['Days to Ship'] = days_to_ship
+            print(f"Added {len(days_to_ship)} Days to Ship")
+        
+        # Thêm Specifications
+        if table_heade_data:
+            combined_data.update(table_heade_data)
+            print(f"Added {len(table_heade_data)} specification columns")
+        
+        # Add debugging information
+        if combined_data:
+            print(f"Successfully extracted combined data with {len(combined_data)} columns")
+            for key, values in combined_data.items():
+                print(f"  {key}: {len(values)} values")
+        else:
+            print("No data extracted from this URL")
+            
+        return combined_data
+        
+    except Exception as e:
+        print(f"Error in get_data_from_url: {e}")
+        return {}
+
+def validate_data_consistency(all_combined_data):
+    """Kiểm tra tính nhất quán của dữ liệu"""
+    if not all_combined_data:
+        return False
     
-    try:
-        elements = driver.find_elements(By.XPATH, "//*[contains(@class,'PartNumber')]")
-        print(f"Found {len(elements)} elements with 'PartNumber' in class")
-    except:
-        print("No PartNumber elements found")
+    # Kiểm tra tất cả các cột có cùng độ dài
+    lengths = [len(values) for values in all_combined_data.values()]
+    if len(set(lengths)) != 1:
+        print(f"⚠ Lỗi: Các cột có độ dài khác nhau: {lengths}")
+        return False
     
-    # Print page title and URL
-    print(f"Page title: {driver.title}")
-    print(f"Current URL: {driver.current_url}")
-    print("=== END DEBUG ===")
+    print(f"✅ Tất cả {len(all_combined_data)} cột đều có {lengths[0]} rows")
+    return True
+
+def print_data_processing_info(url, url_data, all_combined_data, total_rows_processed, url_row_count):
+    """In thông tin chi tiết về quá trình xử lý dữ liệu"""
+    print(f"\n=== Thông tin xử lý URL: {url} ===")
+    print(f"Số rows từ URL này: {url_row_count}")
+    print(f"Tổng rows đã xử lý trước đó: {total_rows_processed}")
+    print(f"Số cột từ URL này: {len(url_data)}")
+    print(f"Số cột trong dữ liệu tổng hợp: {len(all_combined_data)}")
+    
+    # Kiểm tra cột mới
+    new_columns = [key for key in url_data.keys() if key not in all_combined_data]
+    if new_columns:
+        print(f"Cột mới được thêm: {new_columns}")
+    
+    # Kiểm tra cột thiếu
+    missing_columns = [key for key in all_combined_data.keys() if key not in url_data and key != 'Source_URL']
+    if missing_columns:
+        print(f"Cột thiếu trong URL này: {missing_columns}")
+    
+    print("=" * 50)
 
 # ====== MAIN ======
 def main():
-    url = "https://vn.misumi-ec.com/vona2/detail/110310367019/?KWSearch=bearing&searchFlow=results2products&list=PageSearchResult"
-
-    # Khởi tạo Chrome
-    driver = setup_driver()
-    if not driver:
-        print("Failed to setup Chrome driver")
-        return
+    #2 dòng cần chú ý
+    urls = get_url_From_file(r"C:\Users\abc\Pictures\code\Chay-Code\ooo\same_day_products_from_html.csv",0,181)
+    name_file_to_save=r"C:\Users\abc\Pictures\code\Chay-Code\ooo\input_Name_here_with_part_number0_180"
+    #2 dòng cần chú ý
+    # url1="https://vn.misumi-ec.com/vona2/detail/110300107740/?KWSearch=bearing&searchFlow=results2products&list=PageSearchResult"
+    # Initialize data structure to accumulate all data
+    all_combined_data = {}
+    total_rows_processed = 0
     
-    try:
-        driver.maximize_window()
-        driver.get(url)
-        
-        # Debug page structure
-        debug_page_structure(driver)
-
-        print("Đang lấy danh sách Part Numbers...")
-        part_numbers = extract_all_part_numbers(driver)
-        
-        if not part_numbers:
-            print("ERROR: No part numbers found. The page structure may have changed.")
-            print("Please check the website manually to see if the structure has changed.")
-            return
+    for url in urls:
+        # url=url1
+        print("Processing URL:", url)
+        driver = setup_driver()
+        if not driver:
+            print("Failed to setup Chrome driver")
+            continue
             
-        print(f"Tìm thấy {len(part_numbers)} part numbers.")
-        all_data = []
-        
-        # Process part numbers in smaller batches to avoid connection issues
-        batch_size = 10
-        for batch_start in range(0, len(part_numbers), batch_size):
-            batch_end = min(batch_start + batch_size, len(part_numbers))
-            batch_part_numbers = part_numbers[batch_start:batch_end]
-            
-            print(f"Processing batch {batch_start//batch_size + 1}: part numbers {batch_start+1}-{batch_end}")
-            
-            for idx, pn in enumerate(batch_part_numbers, start=batch_start+1):
-                print(f"({idx}/{len(part_numbers)}) Đang lấy dữ liệu: {pn}")
-                try:
-                    data = get_data_match_part_number(driver, idx, pn)
-                    data["Part Number"] = pn  # Ensure correct part number
-                    all_data.append(data)
-                except Exception as e:
-                    print(f"Error processing part number {pn}: {e}")
-                    all_data.append({"Part Number": pn, "Error": str(e)})
-                
-                # Small delay between requests
-                time.sleep(1)
-            
-            # Check if driver is still connected after each batch
-            try:
-                driver.current_url
-            except Exception as e:
-                print(f"Driver connection lost after batch {batch_start//batch_size + 1}: {e}")
-                break
-        
-        print("all_data:", all_data)
-        
-        # Save to Excel if data is available
-        if all_data:
-            try:
-                df = pd.DataFrame(all_data)
-                import datetime
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                output_file = f"misumi_bearings_{timestamp}.xlsx"
-                df.to_excel(output_file, index=False)
-                print(f"✅ Đã lưu dữ liệu vào {output_file}")
-                print(f"Total records saved: {len(all_data)}")
-                
-                # Print summary
-                successful_records = [d for d in all_data if "Error" not in d or not d["Error"]]
-                error_records = [d for d in all_data if "Error" in d and d["Error"]]
-                print(f"Successful records: {len(successful_records)}")
-                print(f"Error records: {len(error_records)}")
-                
-            except Exception as e:
-                print(f"Error saving to Excel: {e}")
-        else:
-            print("⚠ Không lấy được dữ liệu nào.")
-            
-    except Exception as e:
-        print(f"Error in main function: {e}")
-    finally:
         try:
+            driver.maximize_window()
+            url_data = get_data_from_url(driver, url)
+            
+            # Check if we got any data from this URL
+            if not url_data:
+                print(f"No data structure extracted from URL: {url}")
+                continue
+                
+            # Get the number of rows from this URL
+            url_row_count = max(len(values) for values in url_data.values()) if url_data else 0
+            
+            if url_row_count == 0:
+                print(f"⚠ Warning: Found {len(url_data)} columns but 0 data rows from URL: {url}")
+                print("This might indicate the page structure is different or data is loaded dynamically")
+                # Thử thêm một lần nữa với delay dài hơn
+                time.sleep(10)
+                print("Retrying data extraction with longer delay...")
+                url_data = get_other_data(driver)
+                url_row_count = max(len(values) for values in url_data.values()) if url_data else 0
+                
+                if url_row_count == 0:
+                    print(f"Still no data after retry, skipping URL: {url}")
+                    continue
+                else:
+                    print(f"✅ Successfully extracted {url_row_count} rows after retry")
+                
+            print(f"Extracted {url_row_count} rows from URL")
+            
+            # In thông tin chi tiết về quá trình xử lý
+            print_data_processing_info(url, url_data, all_combined_data, total_rows_processed, url_row_count)
+            
+            # Add URL identifier to track data source
+            if 'Source_URL' not in all_combined_data:
+                all_combined_data['Source_URL'] = []
+            all_combined_data['Source_URL'].extend([url] * url_row_count)
+            
+            # Xử lý các cột mới từ URL hiện tại
+            new_columns = []
+            for key in url_data.keys():
+                if key not in all_combined_data:
+                    new_columns.append(key)
+                    print(f"Adding new column: {key}")
+                    all_combined_data[key] = []
+                    # Điền giá trị rỗng cho tất cả dữ liệu cũ (từ các URL trước đó)
+                    all_combined_data[key].extend([''] * total_rows_processed)
+            
+            # Xử lý các cột hiện có trong all_combined_data nhưng không có trong url_data
+            missing_columns = []
+            for key in all_combined_data.keys():
+                if key not in url_data and key != 'Source_URL':
+                    missing_columns.append(key)
+                    print(f"Column '{key}' missing in current URL, will fill with empty values")
+            
+            # Đảm bảo tất cả các cột hiện có có đủ số lượng phần tử
+            for key in all_combined_data:
+                while len(all_combined_data[key]) < total_rows_processed:
+                    all_combined_data[key].append('')
+            
+            # Thêm dữ liệu từ URL hiện tại
+            for key, values in url_data.items():
+                all_combined_data[key].extend(values)
+            
+            # Điền giá trị rỗng cho các cột thiếu trong URL hiện tại
+            for key in missing_columns:
+                all_combined_data[key].extend([''] * url_row_count)
+            
+            # Update total rows processed
+            total_rows_processed += url_row_count
+            
+            # Đảm bảo tất cả các cột có cùng độ dài
+            max_length = max(len(v) for v in all_combined_data.values())
+            for key in all_combined_data:
+                while len(all_combined_data[key]) < max_length:
+                    all_combined_data[key].append('')
+                
+        except Exception as e:
+            print(f"Error processing URL {url}: {e}")
+        finally:
             driver.quit()
-        except:
-            pass
+
+    print(f"Total rows processed: {total_rows_processed}")
+    print("Combined data keys:", list(all_combined_data.keys()))
+
+    # Validate data consistency before saving
+    if not validate_data_consistency(all_combined_data):
+        print("⚠ Dữ liệu không nhất quán, không thể lưu file")
+        return
+
+    # Save the accumulated data
+    if all_combined_data and total_rows_processed > 0:
+        df = pd.DataFrame(all_combined_data)
+        output_file = name_file_to_save+".xlsx"
+        df.to_excel(output_file, index=False)
+        print(f"✅ Đã lưu dữ liệu vào {output_file}")
+        print(f"DataFrame shape: {df.shape}")
+        
+        # In thống kê về dữ liệu
+        print("\nThống kê dữ liệu:")
+        for col in df.columns:
+            non_empty_count = (df[col] != '').sum()
+            print(f"  {col}: {non_empty_count}/{len(df)} rows có dữ liệu")
+    else:
+        print("⚠ Không lấy được dữ liệu nào.")
 
 
 if __name__ == "__main__":
-    main() 
+    main()
